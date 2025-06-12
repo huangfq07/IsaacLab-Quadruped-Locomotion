@@ -1,0 +1,26 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/anymal_c/flat_env_cfg.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/anymal_c/flat_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/anymal_c/flat_env_cfg.py
+index 193658ad33..489c1d2f67 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/anymal_c/flat_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/manager_based/locomotion/velocity/config/anymal_c/flat_env_cfg.py
+@@ -39,7 +39,7 @@ class AnymalCFlatEnvCfg_PLAY(AnymalCFlatEnvCfg):
+         super().__post_init__()
+ 
+         # make a smaller scene for play
+-        self.scene.num_envs = 50
++        self.scene.num_envs = 10
+         self.scene.env_spacing = 2.5
+         # disable randomization for play
+         self.observations.policy.enable_corruption = False

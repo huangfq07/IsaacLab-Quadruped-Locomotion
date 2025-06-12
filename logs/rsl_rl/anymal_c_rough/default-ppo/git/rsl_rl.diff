@@ -1,0 +1,26 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   rsl_rl/algorithms/ppo.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/rsl_rl/algorithms/ppo.py b/rsl_rl/algorithms/ppo.py
+index 0512ece..0b0e26f 100644
+--- a/rsl_rl/algorithms/ppo.py
++++ b/rsl_rl/algorithms/ppo.py
+@@ -226,7 +226,7 @@ class PPO:
+     ### Command to visualize the performance
+     ### tensorboard --logdir logs/rsl_rl
+     def update(self):
+-        method_type = "basic_ppo"  # "basic_ppo", "advanced_ppo" 
++        method_type = "ppo"  # "basic_ppo", "advanced_ppo" 
+ 
+         if method_type == "basic_ppo":
+             # print(f"Use my basic ppo")

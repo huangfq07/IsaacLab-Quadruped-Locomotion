@@ -1,0 +1,303 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   rsl_rl/algorithms/ppo.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/rsl_rl/algorithms/ppo.py b/rsl_rl/algorithms/ppo.py
+index d686221..243b1b6 100644
+--- a/rsl_rl/algorithms/ppo.py
++++ b/rsl_rl/algorithms/ppo.py
+@@ -22,6 +22,10 @@ class PPO:
+     policy: ActorCritic
+     """The actor critic module."""
+ 
++    ### 1. The __init__ Method (Configuration)
++    ### This is the constructor. It initializes the agent and stores all the hyperparameters 
++    ### defined in your config files.
++    ### Theory: This step sets up all the fixed parameters for the algorithm.
+     def __init__(
+         self,
+         policy,
+@@ -46,6 +50,7 @@ class PPO:
+         # Distributed training parameters
+         multi_gpu_cfg: dict | None = None,
+     ):
++        # print("\n\n\nHello Jason! Let's write PPO!\n\n\nHello Jason! Let's write PPO!\n\n\n")
+         # device-related parameters
+         self.device = device
+         self.is_multi_gpu = multi_gpu_cfg is not None
+@@ -92,6 +97,7 @@ class PPO:
+             self.symmetry = None
+ 
+         # PPO components
++        # It takes the initialized ActorCritic network as an input.
+         self.policy = policy
+         self.policy.to(self.device)
+         # Create optimizer
+@@ -101,11 +107,18 @@ class PPO:
+         self.transition = RolloutStorage.Transition()
+ 
+         # PPO parameters
++        # This is the hyperparameter ε (epsilon) used in the PPO clipped objective. 
++        # A common value is 0.2. 
+         self.clip_param = clip_param
+         self.num_learning_epochs = num_learning_epochs
+         self.num_mini_batches = num_mini_batches
++        # These are the weights for the different components of the final loss function. 
++        # They control the importance of fitting the value function and encouraging exploration (entropy).
+         self.value_loss_coef = value_loss_coef
+         self.entropy_coef = entropy_coef
++        # These are the discount factor (gamma) and the lambda parameter for 
++        # Generalized Advantage Estimation (GAE), which is the method 
++        # used to calculate how much better an action was than the baseline.
+         self.gamma = gamma
+         self.lam = lam
+         self.max_grad_norm = max_grad_norm
+@@ -135,7 +148,15 @@ class PPO:
+             self.device,
+         )
+ 
++    ### 2. The Data Collection Phase (act and process_env_step)
++    ### These functions are called repeatedly by the "runner" to gather experience.
++    ### Theory: This is the on-policy data gathering phase. 
++    ### The agent uses its current policy to interact with the environment.
+     def act(self, obs, critic_obs):
++        # This function takes the current observations, asks the ActorCritic policy for an action 
++        # (self.policy.act(obs)), and also gets the predicted value (self.policy.evaluate(critic_obs)) 
++        # and the log-probability of that action.  These are all stored temporarily.
++        
+         if self.policy.is_recurrent:
+             self.transition.hidden_states = self.policy.get_hidden_states()
+         # compute the actions and values
+@@ -150,6 +171,9 @@ class PPO:
+         return self.transition.actions
+ 
+     def process_env_step(self, rewards, dones, infos):
++        # After the action is taken and the environment responds, this function is called. 
++        # It takes the rewards and dones from the environment and stores the complete transition 
++        # (obs, action, reward, done, value, log_prob) into the self.storage buffer. 
+         # Record the rewards and dones
+         # Note: we clone here because later on we bootstrap the rewards based on timeouts
+         self.transition.rewards = rewards.clone()
+@@ -178,14 +202,159 @@ class PPO:
+         self.transition.clear()
+         self.policy.reset(dones)
+ 
++    ### 3. The Advantage Calculation Phase (compute_returns)
++    ### This is called once the RolloutStorage is full.
++    ### Theory: This step calculates the two crucial targets for learning:
++    ### Returns (G_t): The target value for the critic to aim for.
++    ### Advantages (Â_t): The metric that tells the actor whether an action was better or worse than average.
+     def compute_returns(self, last_critic_obs):
++        # The function gets the value prediction for the very last state.
+         # compute value for the last step
+         last_values = self.policy.evaluate(last_critic_obs).detach()
++        # This function will work backwards from the end of the rollout, 
++        # using the GAE formula to calculate the advantages and returns for every step in the buffer.
+         self.storage.compute_returns(
+             last_values, self.gamma, self.lam, normalize_advantage=not self.normalize_advantage_per_mini_batch
+         )
+ 
+-    def update(self):  # noqa: C901
++    ### 4. The Learning Phase (update method)
++    ### This is the heart of the PPO algorithm where the learning happens.
++    ### Theory: The agent iterates over the collected data multiple times (epochs), 
++    ### updating the policy using the PPO clipped surrogate objective.
++    ### Command to train
++    ### ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py --task=Isaac-Velocity-Flat-Anymal-C-v0 --headless
++    ### Command to visualize the performance
++    ### tensorboard --logdir logs/rsl_rl
++    def update(self):
++        method_type = "ppo"  # "basic_ppo", "full_ppo" 
++
++        if method_type == "basic_ppo":
++            # print(f"Use my basic ppo")
++            return self.update_ppo_basic(self.policy, self.optimizer, self.storage, 
++                                         self.clip_param, self.value_loss_coef, self.entropy_coef,
++                                         self.num_learning_epochs, self.num_mini_batches, self.max_grad_norm,
++                                         self.normalize_advantage_per_mini_batch, self.use_clipped_value_loss)
++        else:
++            # print(f"Use the original ppo")
++            return self.original_update()
++    
++    def update_ppo_basic(self, policy, optimizer, storage, 
++                         clip_param, value_loss_coef, entropy_coef,
++                         num_learning_epochs, num_mini_batches, max_grad_norm,
++                         normalize_advantage_per_mini_batch, use_clipped_value_loss):
++        """
++        A simplified, fundamental implementation of the PPO update logic.
++        """
++        total_surrogate_loss = 0
++        total_value_loss = 0
++        total_entropy = 0
++
++        # Create a generator that shuffles the data and yields mini-batches.
++        # This is a key function of the storage buffer.
++        data_generator = storage.mini_batch_generator(num_mini_batches, num_learning_epochs)
++
++        for mini_batch in data_generator:
++            # 1. Get the data for the current mini-batch.
++            (
++                obs_batch,
++                critic_obs_batch, # We need critic_obs to evaluate the value function
++                actions_batch,
++                target_values_batch,
++                advantages_batch,
++                returns_batch,
++                old_actions_log_prob_batch,
++                _,  # old_mu_batch (unused)
++                _,  # old_sigma_batch (unused)
++                hid_states_batch,
++                masks_batch,
++                _,  # rnd_state_batch (unused)
++            ) = mini_batch
++
++            # 2. Run a forward pass to set and retrieve the internal state of the policy module.
++            policy.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
++            new_actions_log_prob_batch = policy.get_actions_log_prob(actions_batch)
++            new_values_batch = policy.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
++            entropy_batch = policy.entropy[:obs_batch.shape[0]]
++
++            # 3. Calculate the Importance Sampling Ratio.
++            ratio = torch.exp(new_actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
++
++            # 4. Calculate the two surrogate objectives for the policy loss.
++            # --- TRICK 1: Advantage Normalization (Crucial for stability) ---
++            # In complex environments, the calculated advantage values can have a very high variance. 
++            # A few states might have massive advantages, while others are small. 
++            # This can lead to huge, unstable gradients. 
++            # Normalizing the advantages (per mini-batch) to have a mean of 0 and a standard deviation of 1 
++            # ensures that the policy updates are smooth and not dominated by outliers.
++            if normalize_advantage_per_mini_batch:
++                with torch.no_grad():
++                    advantages_batch = (advantages_batch - advantages_batch.mean()) / (advantages_batch.std() + 1e-8)
++            surrogate_1 = torch.squeeze(advantages_batch) * ratio
++            surrogate_2 = torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param)
++
++            # 5. Calculate the final Policy Loss for this mini-batch.
++            surrogate_loss = -torch.min(surrogate_1, surrogate_2).mean()
++
++            # 6. Calculate the Value Function Loss for this mini-batch.
++            # --- TRICK 2: Clipped Value Loss (Helps stabilize advantage estimates) ---
++            # It prevents the value function (the critic) from changing too drastically in a single update step. 
++            # Since the advantages depend on the value function, 
++            # keeping the value function stable also helps keep the advantage estimates stable, 
++            # which in turn stabilizes the policy updates.
++            if use_clipped_value_loss:
++                value_pred_clipped = target_values_batch + (new_values_batch - target_values_batch).clamp(-clip_param, clip_param)
++                value_loss_unclipped = torch.nn.functional.mse_loss(new_values_batch, returns_batch)
++                value_loss_clipped = torch.nn.functional.mse_loss(value_pred_clipped, returns_batch)
++                value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
++            else:
++                value_loss = torch.nn.functional.mse_loss(new_values_batch, returns_batch).mean()
++
++            # 7. Calculate the entropy loss.
++            entropy_mean = entropy_batch.mean()
++
++            # 8. Calculate the final combined loss for this mini-batch.
++            loss = surrogate_loss + (value_loss_coef * value_loss) - (entropy_coef * entropy_mean)
++
++            # 9. Perform the gradient update for this mini-batch.
++            optimizer.zero_grad()
++            loss.backward()
++
++            # --- TRICK 3: Gradient Clipping (The final safety net) ---
++            # This prevents the gradients from becoming too large and corrupting the network.
++            # Or else, we might encounter the error RuntimeError: normal expects all elements of std >= 0.0.
++            torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
++
++            optimizer.step()
++
++            # 10. Keep track of losses for logging
++            total_surrogate_loss += surrogate_loss.item()
++            total_value_loss += value_loss.item()
++            total_entropy += entropy_mean.item()
++
++        # Calculate average losses over all mini-batches and epochs
++        num_updates = num_learning_epochs * num_mini_batches
++        mean_surrogate_loss = total_surrogate_loss / num_updates
++        mean_value_loss = total_value_loss / num_updates
++        mean_entropy = total_entropy / num_updates
++
++        # construct the loss dictionary
++        loss_dict = {
++            "value_function": mean_value_loss,
++            "surrogate": mean_surrogate_loss,
++            "entropy": mean_entropy,
++        }
++        
++        # --- FIX: Clear the storage buffer after all updates are done  ---
++        # Or else, we will encounter 
++        # raise OverflowError("Rollout buffer overflow! You should call clear() before adding new transitions.")
++        storage.clear()
++
++        # print(f"Basic PPO update complete. Avg Surrogate Loss: {mean_surrogate_loss:.4f}, Avg Value Loss: {mean_value_loss:.4f}, Avg Entropy: {mean_entropy:.4f}")
++    
++        return loss_dict
++
++    ### This is the original PPO implementation by the library.
++    def original_update(self):  # noqa: C901
+         mean_value_loss = 0
+         mean_surrogate_loss = 0
+         mean_entropy = 0
+@@ -200,6 +369,8 @@ class PPO:
+         else:
+             mean_symmetry_loss = None
+ 
++        # Mini-Batch Generation: The code creates a generator that shuffles the data and 
++        # yields mini-batches for a specified number of epochs.
+         # generator for mini batches
+         if self.policy.is_recurrent:
+             generator = self.storage.recurrent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
+@@ -305,7 +476,13 @@ class PPO:
+                         param_group["lr"] = self.learning_rate
+ 
+             # Surrogate loss
++            # Ratio Calculation r_t(θ). This is the implementation of the importance sampling ratio 
++            # r_t(θ) = π_θ(a|s) / π_θ_old(a|s), which measures how much the policy has changed since the data was collected. 
+             ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
++            # Policy Loss (The PPO Clip). This is the direct implementation of the PPO clipped objective function L_CLIP(θ). 
++            # It calculates the normal policy gradient objective (surrogate) and a clipped version 
++            # where the ratio can't go too far from 1.0. 
++            # It then takes the max (since the loss is negative) to create a pessimistic, stable objective. 
+             surrogate = -torch.squeeze(advantages_batch) * ratio
+             surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(
+                 ratio, 1.0 - self.clip_param, 1.0 + self.clip_param
+@@ -313,6 +490,11 @@ class PPO:
+             surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+ 
+             # Value function loss
++            # This is a standard Mean Squared Error loss. 
++            # It encourages the critic's value prediction (value_batch) to get closer to 
++            # the calculated returns from the rollout (returns_batch). 
++            # The code also includes an option for a "clipped value loss", 
++            # which is an additional technique from the paper to further stabilize training.
+             if self.use_clipped_value_loss:
+                 value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(
+                     -self.clip_param, self.clip_param
+@@ -323,6 +505,8 @@ class PPO:
+             else:
+                 value_loss = (returns_batch - value_batch).pow(2).mean()
+ 
++            # Total Loss.
++            # The final loss is a weighted sum of the policy loss, the value loss, and an entropy bonus (to encourage exploration).
+             loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+ 
+             # Symmetry loss
+@@ -370,6 +554,8 @@ class PPO:
+                 rnd_loss = mseloss(predicted_embedding, target_embedding)
+ 
+             # Compute the gradients
++            # Gradient Update: The code then performs the standard loss.backward() and 
++            # optimizer.step() to update the network weights. 
+             # -- For PPO
+             self.optimizer.zero_grad()
+             loss.backward()

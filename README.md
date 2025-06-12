@@ -59,6 +59,9 @@ Overall Conclusion
 
 **Video Play**
 ![Rough Terrain](rough_terrain.gif)
+https://github.com/huangfq07/IsaacLab-Quadruped-Locomotion/blob/main/tough_terrain.gif
+https://github.com/huangfq07/IsaacLab-Quadruped-Locomotion/blob/main/tough_terrain_2.gif
+
 ## Repository Structure
 To showcase the work clearly, this repository contains:
 - /logs: 
